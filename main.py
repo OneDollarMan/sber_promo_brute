@@ -1,10 +1,10 @@
 from time import sleep
-
 from selenium import webdriver
 from threading import Thread, Lock
-
 from selenium.webdriver import Keys
 from selenium.webdriver.common.by import By
+from selenium.webdriver.support.wait import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
 abc = 'abcdefghijklmnopqrstuvwxyz1234567890'
 lock = Lock()
@@ -38,7 +38,8 @@ def save_working_promo(promo):
 def thread_func(token):
     print(f'thread with token "{token}" started')
     driver = webdriver.Firefox()
-    driver.implicitly_wait(30)
+    driver.maximize_window()
+    driver.implicitly_wait(10)
     driver.get('https://sbermarket.ru/')
     login_cookie = {'name': 'remember_user_token', 'value': token}
     driver.add_cookie(login_cookie)
@@ -47,6 +48,10 @@ def thread_func(token):
     sleep(10)
     checkout_button = driver.find_element(By.XPATH, "//button[@class='Button_root__WicTg Button_default__fTaqt Button_primary__ifUNs Button_lgSize__ePPCL Button_block__48waA cart-checkout-link']")
     checkout_button.submit()
+
+    promo_input = driver.find_element(By.XPATH, "//input[@class='Input_root__xROBM FormGroup_input__H6r_Q PromoCode_input__b7H0S']")
+    promo_input.send_keys(get_next_promo())
+    WebDriverWait(driver, 1000000).until(EC.element_to_be_clickable((By.XPATH, "//button[@class='Button_root__WicTg Button_default__fTaqt Button_secondary__f4KOQ Button_smSize__FV_id CheckoutButton_root__holGG PromoCode_button__ybZoC']"))).click()
 
 
 def main():
