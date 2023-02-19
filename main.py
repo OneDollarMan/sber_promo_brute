@@ -3,6 +3,7 @@ from time import sleep
 from selenium import webdriver
 from threading import Thread, Lock
 
+from selenium.webdriver import Keys
 from selenium.webdriver.common.by import By
 
 abc = 'abcdefghijklmnopqrstuvwxyz1234567890'
@@ -24,7 +25,6 @@ def get_next_promo():
             i -= 1
 
     promo = ''.join(promo)  #save next promo to file and return it
-
     with open('current.txt', 'w') as f:
         f.write(promo)
     return promo
@@ -38,15 +38,15 @@ def save_working_promo(promo):
 def thread_func(token):
     print(f'thread with token "{token}" started')
     driver = webdriver.Firefox()
+    driver.implicitly_wait(30)
     driver.get('https://sbermarket.ru/')
     login_cookie = {'name': 'remember_user_token', 'value': token}
     driver.add_cookie(login_cookie)
-    while True:
-        driver.get("https://sbermarket.ru/")
-        driver.implicitly_wait(10)
-        checkout_button = driver.find_element(By.CLASS_NAME, 'Button_root__WicTg Button_default__fTaqt Button_primary__ifUNs Button_lgSize__ePPCL Button_block__48waA cart-checkout-link')
-        checkout_button.click()
-        sleep(10)
+
+    # next is loopable
+    sleep(10)
+    checkout_button = driver.find_element(By.XPATH, "//button[@class='Button_root__WicTg Button_default__fTaqt Button_primary__ifUNs Button_lgSize__ePPCL Button_block__48waA cart-checkout-link']")
+    checkout_button.submit()
 
 
 def main():
