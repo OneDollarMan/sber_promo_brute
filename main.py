@@ -6,7 +6,10 @@ from threading import Thread, Lock
 from time import sleep
 
 from selenium import webdriver
+from selenium.common import ElementClickInterceptedException, NoSuchElementException
 from selenium.webdriver.common.by import By
+from fake_useragent import UserAgent
+from selenium.webdriver.chrome.options import Options
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
 
@@ -70,29 +73,42 @@ def save_used_promo(promo):
 
 def thread_func(token):
     print(f'thread with token "{token}" started')
-    driver = webdriver.Firefox()
-    driver.maximize_window()
+    options = Options()
+    options.add_argument("window-size=1400,600")
+    options.add_argument(f'user-agent={UserAgent().random}')
+    driver = webdriver.Chrome(options=options)
     driver.implicitly_wait(10)
     driver.get('https://sbermarket.ru/')
     login_cookie = {'name': 'remember_user_token', 'value': token}
     driver.add_cookie(login_cookie)
     sleep(10)
-    checkout_button = driver.find_element(By.XPATH,
-                                          "//button[@class='Button_root__WicTg Button_default__fTaqt Button_primary__ifUNs Button_lgSize__ePPCL Button_block__48waA cart-checkout-link']")
+    checkout_button = driver.find_element(By.XPATH, "//button[@class='Button_root__WicTg Button_default__fTaqt Button_primary__ifUNs Button_lgSize__ePPCL Button_block__48waA cart-checkout-link']")
     checkout_button.submit()
 
     while True:
+        lock.acquire()
         promo = get_next_promo()
+        lock.release()
 
-        promo_input = driver.find_element(By.CSS_SELECTOR, "#FormGroup0")
+        try:
+            promo_input = driver.find_element(By.XPATH, "//input[@data-qa='checkout_page_sidebar_promocode_input']")
+        except NoSuchElementException:
+            continue
         promo_input.send_keys(promo)
         sleep(1)
 
         promo_btn = driver.find_element(By.CSS_SELECTOR, "button.Button_smSize__FV_id:nth-child(2)")
-        promo_btn.click()
+        sleep(1)
+        try:
+            promo_btn.click()
+        except ElementClickInterceptedException:
+            continue
 
-        promo_description = driver.find_element(By.CSS_SELECTOR, ".FormGroup_description__tYxjD").text
-
+        try:
+            promo_description = driver.find_element(By.CSS_SELECTOR, ".FormGroup_description__tYxjD").text
+        except Exception:
+            continue
+        lock.acquire()
         if PROMO_NOT_FOUND == promo_description:
             save_bad_promo(promo)
         elif PROMO_USED == promo_description:
@@ -104,19 +120,19 @@ def thread_func(token):
             # Cancel and save actual working promo
             save_good_promo(promo)
             promo_btn.click()
-
+        lock.release()
         promo_input.clear()
         sleep(9)
 
 
 def main():
-    tokens = open('remember_user_token.txt', 'r')
+    tokens = open('user_token_list.txt', 'r')
     threads = []
     for line in tokens.readlines():
-        threads.append(Thread(target=thread_func, args=(line,)))
+        threads.append(Thread(target=thread_func, args=(line.strip(),)))
     for thread in threads:
         thread.start()
-        sleep(10)
+        sleep(1)
 
 
 if __name__ == '__main__':
