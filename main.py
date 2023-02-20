@@ -48,6 +48,8 @@ def get_next_promo():
     elif MODE == 'RAND':
         promo = 'opscc' + ''.join(random.choice(DICTIONARY) for i in range(6))
         return promo
+    elif MODE == 'TEST':
+        return 'opsccfmbu8j'
     else:
         logging.critical('MODE value should be {BRUT} or {RAND}')
         exit()
@@ -81,7 +83,7 @@ def thread_func(token):
     driver.get('https://sbermarket.ru/')
     login_cookie = {'name': 'remember_user_token', 'value': token}
     driver.add_cookie(login_cookie)
-    sleep(10)
+    driver.get('https://sbermarket.ru/')
     checkout_button = driver.find_element(By.XPATH, "//button[@class='Button_root__WicTg Button_default__fTaqt Button_primary__ifUNs Button_lgSize__ePPCL Button_block__48waA cart-checkout-link']")
     checkout_button.submit()
 
@@ -107,6 +109,7 @@ def thread_func(token):
         try:
             promo_description = driver.find_element(By.CSS_SELECTOR, ".FormGroup_description__tYxjD").text
         except Exception:
+            save_good_promo(promo)
             continue
         lock.acquire()
         if PROMO_NOT_FOUND == promo_description:
@@ -132,7 +135,7 @@ def main():
         threads.append(Thread(target=thread_func, args=(line.strip(),)))
     for thread in threads:
         thread.start()
-        sleep(1)
+        sleep(5)
 
 
 if __name__ == '__main__':
