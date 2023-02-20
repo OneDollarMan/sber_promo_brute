@@ -1,37 +1,70 @@
-from time import sleep
-from selenium import webdriver
-from threading import Thread, Lock
-from selenium.webdriver import Keys
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.wait import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
+import logging
+import random
+import threading
 
-abc = 'abcdefghijklmnopqrstuvwxyz1234567890'
+from threading import Thread, Lock
+from time import sleep
+
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
+
+PROMO_NOT_FOUND = 'Промокод не существует'
+PROMO_USED = 'Данный промокод истек'
+BAN = 'Сервер временно недоступен'
+
+DICTIONARY = 'abcdefghijklmnopqrstuvwxyz1234567890'
+
+MODE = 'RAND'  # 'RAND','BRUT'
+
+THREAD_COUNT = 1  # not working
+
 lock = Lock()
 
 
 def get_next_promo():
-    with open('current.txt', 'r') as f:  #read current promo from file
-        promo = list(f.read())
-    i = len(promo)
+    if MODE == 'BRUT':
+        with open('current.txt', 'r') as f:  # read current promo from file
+            promo = list(f.read())
+        i = len(promo)
 
-    while True:  #loop with next promo generation
-        if i < 6: break
-        if abc.find(promo[i-1]) < len(abc) - 1:
-            promo[i-1] = abc[abc.find(promo[i-1])+1]
-            break
-        else:
-            promo[i - 1] = abc[0]
-            i -= 1
+        while True:  # loop with next promo generation
+            if i < 6: break
+            if DICTIONARY.find(promo[i - 1]) < len(DICTIONARY) - 1:
+                promo[i - 1] = DICTIONARY[DICTIONARY.find(promo[i - 1]) + 1]
+                break
+            else:
+                promo[i - 1] = DICTIONARY[0]
+                i -= 1
 
-    promo = ''.join(promo)  #save next promo to file and return it
-    with open('current.txt', 'w') as f:
-        f.write(promo)
-    return promo
+        promo = ''.join(promo)  # save next promo to file and return it
+        with open('current.txt', 'w') as f:
+            f.write(promo)
+        return promo
+    elif MODE == 'RAND':
+        promo = 'opscc' + ''.join(random.choice(DICTIONARY) for i in range(6))
+        return promo
+    else:
+        logging.critical('MODE value should be {BRUT} or {RAND}')
+        exit()
 
 
-def save_working_promo(promo):
-    with open('res.txt', 'a') as f:
+def save_good_promo(promo):
+    logging.critical('Thread[' + str(threading.get_ident()) + '] GOOD - ' + promo)
+    with open('result/good.txt', 'a') as f:
+        f.write(promo + '\n')
+
+
+def save_bad_promo(promo):
+    logging.info('Thread[' + str(threading.get_ident()) + '] BAD - ' + promo)
+    with open('result/bad.txt', 'a') as f:
+        f.write(promo + '\n')
+
+
+def save_used_promo(promo):
+    logging.warning('Thread[' + str(threading.get_ident()) + '] USED - ' + promo)
+    with open('result/used.txt', 'a') as f:
         f.write(promo + '\n')
 
 
@@ -43,15 +76,37 @@ def thread_func(token):
     driver.get('https://sbermarket.ru/')
     login_cookie = {'name': 'remember_user_token', 'value': token}
     driver.add_cookie(login_cookie)
-
-    # next is loopable
     sleep(10)
-    checkout_button = driver.find_element(By.XPATH, "//button[@class='Button_root__WicTg Button_default__fTaqt Button_primary__ifUNs Button_lgSize__ePPCL Button_block__48waA cart-checkout-link']")
+    checkout_button = driver.find_element(By.XPATH,
+                                          "//button[@class='Button_root__WicTg Button_default__fTaqt Button_primary__ifUNs Button_lgSize__ePPCL Button_block__48waA cart-checkout-link']")
     checkout_button.submit()
 
-    promo_input = driver.find_element(By.XPATH, "//input[@class='Input_root__xROBM FormGroup_input__H6r_Q PromoCode_input__b7H0S']")
-    promo_input.send_keys(get_next_promo())
-    WebDriverWait(driver, 1000000).until(EC.element_to_be_clickable((By.XPATH, "//button[@class='Button_root__WicTg Button_default__fTaqt Button_secondary__f4KOQ Button_smSize__FV_id CheckoutButton_root__holGG PromoCode_button__ybZoC']"))).click()
+    while True:
+        promo = get_next_promo()
+
+        promo_input = driver.find_element(By.CSS_SELECTOR, "#FormGroup0")
+        promo_input.send_keys(promo)
+        sleep(1)
+
+        promo_btn = driver.find_element(By.CSS_SELECTOR, "button.Button_smSize__FV_id:nth-child(2)")
+        promo_btn.click()
+
+        promo_description = driver.find_element(By.CSS_SELECTOR, ".FormGroup_description__tYxjD").text
+
+        if PROMO_NOT_FOUND == promo_description:
+            save_bad_promo(promo)
+        elif PROMO_USED == promo_description:
+            save_used_promo(promo)
+        elif BAN == promo_description:
+            logging.critical("----------------------------YOU ARE BANNED--------------------------------")
+            sleep(3600)
+        else:
+            # Cancel and save actual working promo
+            save_good_promo(promo)
+            promo_btn.click()
+
+        promo_input.clear()
+        sleep(9)
 
 
 def main():
@@ -61,6 +116,7 @@ def main():
         threads.append(Thread(target=thread_func, args=(line,)))
     for thread in threads:
         thread.start()
+        sleep(10)
 
 
 if __name__ == '__main__':
