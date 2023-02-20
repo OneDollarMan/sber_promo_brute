@@ -6,10 +6,13 @@ from threading import Thread, Lock
 from time import sleep
 
 from selenium import webdriver
-from selenium.common import ElementClickInterceptedException, NoSuchElementException
+from selenium.common import ElementClickInterceptedException, NoSuchElementException, InvalidElementStateException
 from selenium.webdriver.common.by import By
 from fake_useragent import UserAgent
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.support.wait import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
 
@@ -18,10 +21,7 @@ PROMO_USED = 'Данный промокод истек'
 BAN = 'Сервер временно недоступен'
 
 DICTIONARY = 'abcdefghijklmnopqrstuvwxyz1234567890'
-
 MODE = 'RAND'  # 'RAND','BRUT'
-
-THREAD_COUNT = 1  # not working
 
 lock = Lock()
 
@@ -79,13 +79,19 @@ def thread_func(token):
     options.add_argument("window-size=1400,600")
     options.add_argument(f'user-agent={UserAgent().random}')
     driver = webdriver.Chrome(options=options)
+    driver.maximize_window()
     driver.implicitly_wait(10)
     driver.get('https://sbermarket.ru/')
     login_cookie = {'name': 'remember_user_token', 'value': token}
     driver.add_cookie(login_cookie)
     driver.get('https://sbermarket.ru/')
-    checkout_button = driver.find_element(By.XPATH, "//button[@class='Button_root__WicTg Button_default__fTaqt Button_primary__ifUNs Button_lgSize__ePPCL Button_block__48waA cart-checkout-link']")
-    checkout_button.submit()
+    sleep(5)
+    try:
+        checkout_button = driver.find_element(By.XPATH, "//button[@class='Button_root__WicTg Button_default__fTaqt Button_primary__ifUNs Button_lgSize__ePPCL Button_block__48waA cart-checkout-link']")
+        checkout_button.submit()
+    except NoSuchElementException:
+        driver.refresh()
+        logging.warning(f'thread {threading.get_ident()} cant find checkout_button, continue manually by clicking cart')
 
     while True:
         lock.acquire()
@@ -94,21 +100,29 @@ def thread_func(token):
 
         try:
             promo_input = driver.find_element(By.XPATH, "//input[@data-qa='checkout_page_sidebar_promocode_input']")
+            if len(promo_input.get_attribute('value')) > 0:
+                promo_input.clear()
+            promo_input.send_keys(promo)
         except NoSuchElementException:
+            logging.warning(f'thread {threading.get_ident()} cant find promo_input')
             continue
-        promo_input.send_keys(promo)
+        except InvalidElementStateException:
+            logging.warning(f'thread {threading.get_ident()} idk whats going on')
+            continue
         sleep(1)
 
         promo_btn = driver.find_element(By.CSS_SELECTOR, "button.Button_smSize__FV_id:nth-child(2)")
-        sleep(1)
         try:
-            promo_btn.click()
-        except ElementClickInterceptedException:
+            WebDriverWait(driver, 30).until(EC.element_to_be_clickable(promo_btn)).click()
+        except ElementClickInterceptedException as e:
+            logging.warning(f'thread {threading.get_ident()} cant click promo_btn')
+            sleep(10)
             continue
 
         try:
             promo_description = driver.find_element(By.CSS_SELECTOR, ".FormGroup_description__tYxjD").text
-        except Exception:
+        except NoSuchElementException:
+            logging.warning(f'thread {threading.get_ident()} got good promo (or just bug)')
             save_good_promo(promo)
             continue
         lock.acquire()
@@ -118,13 +132,10 @@ def thread_func(token):
             save_used_promo(promo)
         elif BAN == promo_description:
             logging.critical("----------------------------YOU ARE BANNED--------------------------------")
-            sleep(3600)
+            sleep(30)
         else:
-            # Cancel and save actual working promo
             save_good_promo(promo)
-            promo_btn.click()
         lock.release()
-        promo_input.clear()
         sleep(9)
 
 
